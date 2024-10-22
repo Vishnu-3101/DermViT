@@ -215,17 +215,17 @@ class EMFGCB(nn.Module):
         # self.mhsa_out_channels = _make_divisible(int(out_channels * mix_block_ratio), 32)
         # self.mhca_out_channels = out_channels - self.mhsa_out_channels
     
-        self.patch_embed = PatchEmbed(in_channels, out_channels, stride)
-        self.norm1 = norm_func(out_channels)
-        self.linformer = LinformerSelfAttention(out_channels, head_dim=head_dim, sr_ratio=sr_ratio,
+        self.patch_embed = PatchEmbed(in_channels, in_channels, stride)
+        self.norm1 = norm_func(in_channels)
+        self.linformer = LinformerSelfAttention(in_channels, head_dim=head_dim, sr_ratio=sr_ratio,
                              attn_drop=attn_drop, proj_drop=drop)
         self.linformer_path_dropout = DropPath(path_dropout * mix_block_ratio)
 
-        self.hfe_block = HFE(in_channels,out_channels)
+        self.hfe_block = HFE(in_channels,in_channels)
         self.hfe_path_dropout = DropPath(path_dropout * (1 - mix_block_ratio))
 
-        self.norm2 = norm_func(out_channels*2)
-        self.mlp = Mlp(out_channels*2, mlp_ratio=mlp_ratio, drop=drop)
+        self.norm2 = norm_func(out_channels)
+        self.mlp = Mlp(out_channels, mlp_ratio=mlp_ratio, drop=drop)
         self.mlp_path_dropout = DropPath(path_dropout)
 
 
@@ -283,6 +283,7 @@ class DermMultiNetBlock(nn.Module):
         out = self.msfe(x)
         print(out.shape)
         out = self.afe(out)
+        print(out.shape)
         out = self.emfgcb(out)
         return out
 
@@ -292,12 +293,19 @@ class DermMultiNet(nn.Module):
         self.derm_block1 = DermMultiNetBlock(in_dim[0],out_dim[0],path_dropout,kernel_size,stride)
         self.derm_block2 = DermMultiNetBlock(in_dim[1],out_dim[1],path_dropout,kernel_size,stride)
         self.derm_block3 = DermMultiNetBlock(in_dim[2],out_dim[2],path_dropout,kernel_size,stride)
+        self.linear1 = nn.Linear(out_dim[2],512)
+        self.relu = nn.ReLU()
+        self.linear2 = nn.Linear(512,2)
     
     def forward(self,x):
         out = self.derm_block1(x)
-        print(out.shape)
+        # print(out.shape)
         out = self.derm_block2(out)
         out = self.derm_block3(out)
+        out = torch.mean(out,dim=[2,3])
+        out = self.linear1(out)
+        out = self.relu(out)
+        out = self.linear2(out)
         return out
 
 in_dim = [3,24,192]
