@@ -247,7 +247,7 @@ class EMFGCB(nn.Module):
         out = self.linformer_path_dropout(self.linformer(out))
         out =  rearrange(out, "b (h w) c -> b c h w", h=H)
         x = x + out
-        print(out.shape)
+        # print(out.shape)
 
         out = out + self.hfe_path_dropout(self.hfe_block(out))
         x = torch.cat([x, out], dim=1)
@@ -282,9 +282,9 @@ class DermMultiNetBlock(nn.Module):
 
     def forward(self,x):
         out = self.msfe(x)
-        print(out.shape)
+        # print(out.shape)
         out = self.afe(out)
-        print(out.shape)
+        # print(out.shape)
         out = self.emfgcb(out)
         return out
 
@@ -317,11 +317,11 @@ def DermMultiViT_model(pretrained=False, pretrained_cfg=None, **kwargs):
 
 ## Code testing
 
-in_dim = [3,24,192]
-out_dim= [24,192,1536]
-stride = 2
-kernel_size = 2
-path_dropout = 0.01
+# in_dim = [3,24,192]
+# out_dim= [24,192,1536]
+# stride = 2
+# kernel_size = 2
+# path_dropout = 0.01
 
 
 
@@ -345,8 +345,8 @@ path_dropout = 0.01
 #                 nn.Conv2d(inplanes, outplanes*expansion, kernel_size=kernel_size, stride=stride),
 #                 nn.BatchNorm2d(outplanes * expansion),
 #             )
-conv = DermMultiNet(in_dim,out_dim,path_dropout,kernel_size,stride)
-input = torch.randn(32, 3, 224, 224)
-output = conv(input)
+# conv = DermMultiNet(in_dim,out_dim,path_dropout,kernel_size,stride)
+# input = torch.randn(32, 3, 224, 224)
+# output = conv(input)
 
-print(output.shape)
+# print(output.shape)
