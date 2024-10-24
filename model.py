@@ -9,6 +9,7 @@ from functools import partial
 from utils import _make_divisible, merge_pre_bn
 from timm.models.layers import DropPath
 from einops import rearrange
+from timm.models.registry import register_model
 
 NORM_EPS = 1e-5
 
@@ -307,6 +308,14 @@ class DermMultiNet(nn.Module):
         out = self.relu(out)
         out = self.linear2(out)
         return out
+
+@register_model
+
+def DermMultiViT_model(pretrained=False, pretrained_cfg=None, **kwargs):
+    model = DermMultiNet(in_dim=[3,24,192], out_dim= [24,192,1536], path_dropout=0.1, stride = 2, kernel_size = 2)
+    return model
+
+## Code testing
 
 in_dim = [3,24,192]
 out_dim= [24,192,1536]
