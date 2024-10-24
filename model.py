@@ -32,7 +32,7 @@ class MSFE(nn.Module):
         self.bn1 = norm_layer(outplanes)
         self.dil_conv2 = nn.Conv2d(outplanes,outplanes,kernel_size=1,dilation=dilation)
         self.bn2 = norm_layer(outplanes)
-        self.relu = nn.ReLU(inplace=True)
+        self.relu = nn.ReLU()
         self.downsample = downsample
 
     def forward(self,x:Tensor)->Tensor:
