@@ -232,7 +232,7 @@ class EMFGCB(nn.Module):
         self.hfe_block = HFE(in_channels,in_channels)
         self.hfe_path_dropout = DropPath(path_dropout * (1 - mix_block_ratio))
 
-        self.norm2 = norm_func(out_channels)
+        self.norm2 = norm_func(in_channels)
         self.norm3 = norm_func(out_channels)
         self.mlp = Mlp(out_channels, mlp_ratio=mlp_ratio, drop=drop)
         self.mlp_path_dropout = DropPath(path_dropout)
@@ -323,11 +323,10 @@ class DermMultiNet(nn.Module):
 
 @register_model
 
-def DermMultiViT_model2(pretrained=False, pretrained_cfg=None, **kwargs):
+def DermMultiViT_model(pretrained=False, pretrained_cfg=None, **kwargs):
     model = DermMultiNet(in_dim=[3,24,192], out_dim= [24,192,1536], path_dropout=0.1, stride = 2, kernel_size = 2)
     return model
 
-model = DermMultiViT_model2()
 
 ## Code testing
 
