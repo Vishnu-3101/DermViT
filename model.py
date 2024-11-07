@@ -4,12 +4,13 @@ from torch import nn
 import torchvision
 from typing import Any, Callable, List, Optional, Type, Union
 from torch import Tensor
-from  torchvision.ops.deform_conv import DeformConv2d
+from  torchvision.ops import DeformConv2d
 from functools import partial
 from utils import _make_divisible, merge_pre_bn
 from timm.models.layers import DropPath
 from einops import rearrange
 from timm.models.registry import register_model
+import torch.nn.functional as F
 
 NORM_EPS = 1e-5
 
@@ -32,8 +33,8 @@ class MSFE(nn.Module):
         self.bn1 = norm_layer(outplanes)
         self.dil_conv2 = nn.Conv2d(outplanes,outplanes,kernel_size=1,dilation=dilation)
         self.bn2 = norm_layer(outplanes)
-        self.relu = nn.ReLU()
         self.downsample = downsample
+        self.relu = nn.ReLU()
 
     def forward(self,x:Tensor)->Tensor:
         identity = x
@@ -41,7 +42,7 @@ class MSFE(nn.Module):
         out = self.bn1(out)
         out = self.dil_conv2(out)
         out = self.bn2(out)
-        out = self.relu(out)
+#         out = F.relu1(out,inplace=False)
         if self.downsample is not None:
             identity = self.downsample(x)
         out += identity
@@ -57,11 +58,16 @@ class AFE(nn.Module):
             kernel_size:int=1,
             stride:int=1,
             downsample: Optional[nn.Module]=None,
+            norm_layer: Optional[Callable[...,nn.Module]] = None 
     )->None:
         super().__init__()
+        if norm_layer is None:
+            norm_layer = nn.BatchNorm2d
         self.depthwise1 = nn.Conv2d(in_channels=inplanes,out_channels = inplanes, kernel_size = 1,stride=1)
         self.pointwise1 = nn.Conv2d(in_channels=inplanes,out_channels = inplanes, kernel_size = 1)
+        self.bn1 = norm_layer(inplanes)
         self.deform_conv = DeformConv2d(in_channels = inplanes, out_channels =inplanes, kernel_size=1,stride = 1)
+        self.bn2 = norm_layer(inplanes)
         self.depthwise2 = nn.Conv2d(in_channels=inplanes,out_channels = inplanes, kernel_size = kernel_size,stride=stride)
         self.pointwise2 = nn.Conv2d(in_channels=inplanes,out_channels = outplanes, kernel_size = 1)
         self.downsample = downsample
@@ -72,8 +78,9 @@ class AFE(nn.Module):
 
         out = self.depthwise1(x)
         out = self.pointwise1(out)
-
+        out = self.bn1(out)
         out = self.deform_conv(out,offset)
+        out = self.bn2(out)
         out = self.depthwise2(out)
         out = self.pointwise2(out)
         return out
@@ -165,7 +172,7 @@ class LinformerSelfAttention(nn.Module):
         return x
 
 class Mlp(nn.Module):
-    def __init__(self, in_features, out_features=None, mlp_ratio=None, drop=0., bias=True):
+    def __init__(self, in_features, out_features=None, mlp_ratio=None, drop=0.2, bias=True):
         super().__init__()
         out_features = out_features or in_features
         hidden_dim = _make_divisible(in_features * mlp_ratio, 32)
@@ -205,7 +212,7 @@ class HFE(nn.Module):
 class EMFGCB(nn.Module):
     def __init__(
         self, in_channels, out_channels, path_dropout, stride=1, sr_ratio=1,
-        mlp_ratio=2, head_dim=8, mix_block_ratio=0.75, attn_drop=0, drop=0,
+        mlp_ratio=2, head_dim=8, mix_block_ratio=0.75, attn_drop=0, drop=0.2,
     ):
         super().__init__()
         self.in_channels = in_channels
@@ -217,15 +224,16 @@ class EMFGCB(nn.Module):
         # self.mhca_out_channels = out_channels - self.mhsa_out_channels
     
         self.patch_embed = PatchEmbed(in_channels, in_channels, stride)
-        self.norm1 = norm_func(in_channels)
         self.linformer = LinformerSelfAttention(in_channels, head_dim=head_dim, sr_ratio=sr_ratio,
                              attn_drop=attn_drop, proj_drop=drop)
         self.linformer_path_dropout = DropPath(path_dropout * mix_block_ratio)
-
+        self.norm1 = norm_func(in_channels)
+        
         self.hfe_block = HFE(in_channels,in_channels)
         self.hfe_path_dropout = DropPath(path_dropout * (1 - mix_block_ratio))
 
         self.norm2 = norm_func(out_channels)
+        self.norm3 = norm_func(out_channels)
         self.mlp = Mlp(out_channels, mlp_ratio=mlp_ratio, drop=drop)
         self.mlp_path_dropout = DropPath(path_dropout)
 
@@ -246,12 +254,14 @@ class EMFGCB(nn.Module):
         out = rearrange(out, "b c h w -> b (h w) c")  # b n c
         out = self.linformer_path_dropout(self.linformer(out))
         out =  rearrange(out, "b (h w) c -> b c h w", h=H)
-        x = x + out
+        out = self.norm1(x)
+        out = x + out
+        x = out
         # print(out.shape)
 
-        out = out + self.hfe_path_dropout(self.hfe_block(out))
+        out = out + self.norm2(self.hfe_path_dropout(self.hfe_block(out)))
         x = torch.cat([x, out], dim=1)
-        out = self.norm2(x)
+        out = self.norm3(x)
         x = x + self.mlp_path_dropout(self.mlp(out))
         
         return x
@@ -289,12 +299,13 @@ class DermMultiNetBlock(nn.Module):
         return out
 
 class DermMultiNet(nn.Module):
-    def __init__(self,in_dim,out_dim,path_dropout,kernel_size,stride):
+    def __init__(self,in_dim,out_dim,path_dropout,kernel_size,stride,drop=0.2):
         super().__init__()
         self.derm_block1 = DermMultiNetBlock(in_dim[0],out_dim[0],path_dropout,kernel_size,stride)
         self.derm_block2 = DermMultiNetBlock(in_dim[1],out_dim[1],path_dropout,kernel_size,stride)
         self.derm_block3 = DermMultiNetBlock(in_dim[2],out_dim[2],path_dropout,kernel_size,stride)
         self.linear1 = nn.Linear(out_dim[2],512)
+        self.drop = nn.Dropout(drop)
         self.relu = nn.ReLU()
         self.linear2 = nn.Linear(512,2)
     
@@ -305,15 +316,18 @@ class DermMultiNet(nn.Module):
         out = self.derm_block3(out)
         out = torch.mean(out,dim=[2,3])
         out = self.linear1(out)
+        out = self.drop(out)
         out = self.relu(out)
         out = self.linear2(out)
         return out
 
 @register_model
 
-def DermMultiViT_model(pretrained=False, pretrained_cfg=None, **kwargs):
+def DermMultiViT_model2(pretrained=False, pretrained_cfg=None, **kwargs):
     model = DermMultiNet(in_dim=[3,24,192], out_dim= [24,192,1536], path_dropout=0.1, stride = 2, kernel_size = 2)
     return model
+
+model = DermMultiViT_model2()
 
 ## Code testing
 
